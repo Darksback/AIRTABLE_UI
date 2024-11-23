@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 from datetime import datetime
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Airtable Configuration
 API_KEY = "patJNieyOmCdDcA51.635e3b384caca979ac0666c13cd2516185d719ecb988abfd939309f793753d56"
@@ -46,28 +47,48 @@ def fetch_records(search_value):
         while True:
             params = {
                 'filterByFormula': f"SEARCH('{search_value_upper}', UPPER({{TRACKING}}))",
+                # Make sure TRACKING is a valid field
+                'fields[]': ['TRACKING', 'SCAN', 'Created']  # Limit fields to reduce payload
             }
+
+            # Print parameters for debugging
+            print(f"Request Parameters: {params}")
+
             if offset:
                 params['offset'] = offset
 
+            # Send the request
             response = requests.get(AIRTABLE_URL, headers=headers, params=params)
-            response.raise_for_status()
+
+            if response.status_code != 200:
+                print(f"Failed to fetch data: {response.status_code}, {response.text}")
+                raise ValueError(f"Airtable API Error: {response.status_code} - {response.text}")
+
+            response.raise_for_status()  # Raise an error for bad responses
 
             data = response.json()
+
             if "records" not in data:
                 raise ValueError("Response does not contain 'records'. Check your API key, base ID, or table name.")
 
             all_records.extend(data["records"])
 
+            # Check if pagination is present in the response (pagination with offset)
             offset = data.get("offset")
             if not offset:
                 break
 
         return all_records
     except requests.exceptions.RequestException as req_error:
+        print(f"Network error: {req_error}")
         messagebox.showerror("Network Error", f"Failed to connect to Airtable: {req_error}")
         return []
+    except ValueError as e:
+        print(f"Value Error: {e}")
+        messagebox.showerror("Error", f"Failed to retrieve records: {e}")
+        return []
     except Exception as e:
+        print(f"Unexpected error: {e}")
         messagebox.showerror("Error", f"An unexpected error occurred: {e}")
         return []
 
@@ -90,27 +111,24 @@ def fetch_ups_data(tracking_number):
     except Exception as e:
         return "N/A", "N/A"
 
-# Function to handle multiple search values asynchronously
+# Function to handle multiple search values asynchronously using ThreadPoolExecutor
 def fetch_multiple_records_async(search_values):
     status_label.configure(text="Searching...")
 
     def wrapper():
         values = [value.strip() for value in search_values.split("\n") if value.strip()]
         all_records = []
+        futures = []
 
-        for value in values:
-            airtable_records = fetch_records(value)
-            ups_date, ups_scan = fetch_ups_data(value)
+        with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers as needed
+            for value in values:
+                # Asynchronously fetch Airtable and UPS data
+                futures.append(executor.submit(process_search_value, value))
 
-            for record in airtable_records:
-                record["ups_date"] = ups_date
-                record["ups_scan"] = ups_scan
-                record["search_value"] = value
-
-            if airtable_records:
-                all_records.extend(airtable_records)
-            else:
-                all_records.append({"search_value": value, "fields": {}, "createdTime": "N/A", "ups_date": ups_date, "ups_scan": ups_scan})
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    all_records.extend(result)
 
         display_multiple_records(all_records)
         status_label.configure(text="Search completed.")
@@ -118,12 +136,28 @@ def fetch_multiple_records_async(search_values):
     thread = threading.Thread(target=wrapper)
     thread.start()
 
+# Process a single search value: fetch both Airtable and UPS data
+def process_search_value(value):
+    airtable_records = fetch_records(value)
+    ups_date, ups_scan = fetch_ups_data(value)
+
+    for record in airtable_records:
+        record["ups_date"] = ups_date
+        record["ups_scan"] = ups_scan
+        record["search_value"] = value
+
+    if not airtable_records:
+        # Append record even if Airtable is empty
+        airtable_records.append({"search_value": value, "fields": {}, "createdTime": "N/A", "ups_date": ups_date, "ups_scan": ups_scan})
+
+    return airtable_records
+
 # Function to display records
 def display_multiple_records(records):
     tree.delete(*tree.get_children())
 
     if not records:
-        ctk.CTkMessagebox(title="Search Results", message="No matching records found in Airtable.")
+        messagebox.showinfo("Search Results", "No matching records found in Airtable.")
         return
 
     displayed = set()
@@ -159,12 +193,10 @@ def display_multiple_records(records):
         displayed_data.append({"TRACKING": search_value, "SCAN": scan, "Created": created_time[:10], "UPS Date": ups_date, "UPS_SCAN": ups_scan, "Most Recent": most_recent_date})
         displayed.add(search_value)
 
-
-
 # Function to export data to Excel
 def export_to_excel():
     if not displayed_data:
-        ctk.CTkMessagebox(title="Export Error", message="No data to export.")
+        messagebox.showinfo("Export Error", "No data to export.")
         return
 
     try:
@@ -173,7 +205,7 @@ def export_to_excel():
         df.to_excel(file_path, index=False)
         os.startfile(file_path)
     except Exception as e:
-        ctk.CTkMessagebox(title="Export Error", message=f"Failed to export data to Excel: {e}")
+        messagebox.showerror("Export Error", f"Failed to export data to Excel: {e}")
 
 # GUI setup (add a new column for UPS_SCAN)
 ctk.set_appearance_mode("dark")
