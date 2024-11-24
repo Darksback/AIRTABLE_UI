@@ -35,7 +35,7 @@ UPS_XML_TEMPLATE = """<?xml version="1.0"?>
 </TrackRequest>
 """
 
-UPS_TRACK_URL = "https://wwwcie.ups.com/ups.app/xml/Track"
+UPS_TRACK_URL = "https://onlinetools.ups.com/ups.app/xml/Track"
 
 # Function to fetch records from Airtable
 def fetch_records(search_value):
