@@ -8,8 +8,8 @@ from PIL import Image, ImageTk  # Import ImageTk to create Tkinter-compatible im
 from datetime import datetime
 
 # Airtable Configuration
-API_KEY = "patJNieyOmCdDcA51.635e3b384caca979ac0666c13cd2516185d719ecb988abfd939309f793753d56"
-AIRTABLE_URL = f"https://api.airtable.com/v0/appoGD1yWNzgOPH0O/TPD"
+API_KEY = "API_KEY_GOES_HERE"
+AIRTABLE_URL = f"URL_FOR_THE_API_REQUEST"
 
 headers = {"Authorization": f"Bearer {API_KEY}"}
 
@@ -183,5 +183,6 @@ status_label.pack(pady=5)
 
 # Initialize global variable for data
 displayed_data = []
+
 
 root.mainloop()
